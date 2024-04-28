@@ -1,12 +1,13 @@
 {
     "name": "coderunner",
     "version": "0.0.0",
-    "main": "./src/index.js",
+    "main": "./dist/index.js",
     "license": "MIT",
     "type": "commonjs",
     "scripts": {
-        "start": "node ./src/index.js",
-        "dev": "nodemon --ext js,json,ts ./src/index.js"
+        "start": "node ./dist/index.js",
+        "dev": "nodemon --ext js,json,ts ./dist/index.js",
+        "build": "tsc"
     },
     "dependencies": {
         "axios": "^1.6.8",

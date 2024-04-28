@@ -1,8 +1,8 @@
-require('dotenv/config');
+import 'dotenv/config';
 
-const { Client, IntentsBitField } = require('discord.js');
-const { CommandKit } = require('commandkit');
-const { Utilities } = require('utilities');
+import { Client, IntentsBitField } from "discord.js";
+import { CommandKit } from "commandkit";
+import { Utilities } from "utilities";
 
 const client = new Client({
     intents: [
