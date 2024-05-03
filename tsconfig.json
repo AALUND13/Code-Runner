@@ -8,7 +8,6 @@
       "resolveJsonModule": true,
       "skipLibCheck": true,
       "noUncheckedIndexedAccess": true,
-      "removeComments": true,
       "allowJs": true,
       "strict": true,
       "declaration": false,

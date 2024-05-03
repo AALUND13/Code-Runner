@@ -1,7 +1,7 @@
 import axios from 'axios';
-import { SlashCommandProps, ButtonKit, CommandKit, CommandOptions } from 'commandkit';
-import { SlashCommandBuilder, EmbedBuilder, Colors, ButtonStyle, ActionRowBuilder, TextChannel, MessageActionRowComponentBuilder, Client, ChatInputCommandInteraction } from 'discord.js';
-import { executeJavaScript } from 'utilities';
+import { SlashCommandProps, CommandKit, CommandOptions } from 'commandkit';
+import { SlashCommandBuilder, EmbedBuilder, Colors, TextChannel, Client, ChatInputCommandInteraction } from 'discord.js';
+import { JavaScriptExecutor, IJavaScriptExecutorState, truncateString } from 'utilities';
 
 export const data = new SlashCommandBuilder()
     .setName('run_code')
@@ -32,40 +32,22 @@ export async function run({ interaction, client, handler }: SlashCommandProps) {
 
     let codeToRun: string | undefined = await getCodeToRun(interaction, client, handler);;
     if (!codeToRun) return;
+    
+    // Use the new JavaScriptExecutionHandler from utilities package
+    const javaScriptExecutor = await new JavaScriptExecutor(codeToRun, require, false, [], {}, 500).executes(async (executor) => {
+        let embed = executeJavaScriptEmbed(executor.getState());
 
-    const executeAgainButton = new ButtonKit()
-        .setCustomId('execute_again_button')
-        .setLabel('Execute Again')
-        .setStyle(ButtonStyle.Primary);
+        // Reply with the captured console output
+        await interaction.editReply({ embeds: [embed] });
+    })
+    
+    console.log(javaScriptExecutor.getState())
 
-        const buttonRow = new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(executeAgainButton);
-
-    // Execute JavaScript code using executeJavaScript()
-    let { returnValue, consoleOutput, error } = await executeJavaScript(codeToRun, { interaction, client, handler }, require, 750);
-
-    let embed = executeJavaScriptEmbed(returnValue, consoleOutput, error, codeToRun);
+    let embed = executeJavaScriptEmbed(javaScriptExecutor.getState());
 
     // Reply with the captured console output
-    await interaction.editReply({ embeds: [embed], components: [buttonRow] });
-
-    executeAgainButton.onClick(
-        async (buttonInteraction) => {
-            if (!handler.devUserIds.includes(buttonInteraction.user.id)) {
-                await buttonInteraction.reply({ content: ':x: Only the dev user can use this button.', ephemeral: true });
-                return;
-            }
-
-            codeToRun = await getCodeToRun(interaction, client, handler);
-            if (!codeToRun) return;
-
-            let { returnValue, consoleOutput, error } = await executeJavaScript(codeToRun, { interaction, client, handler }, require, 750);
-
-            const embed = executeJavaScriptEmbed(returnValue, consoleOutput, error, codeToRun);
-
-            buttonInteraction.update({ embeds: [embed], components: [buttonRow] });
-        },
-        { message: interactionmessage },
-    );
+    await interaction.editReply({ embeds: [embed] });
+    
 }
 
 async function getCodeToRun(interaction: ChatInputCommandInteraction, client: Client, handler: CommandKit): Promise<string | undefined> {
@@ -106,32 +88,27 @@ async function getCodeToRun(interaction: ChatInputCommandInteraction, client: Cl
     }
 }
 
-function executeJavaScriptEmbed(returnValue: any, consoleOutput: string, error: string, codeToRun: string): object {
+function executeJavaScriptEmbed(javaScriptExecutorState: IJavaScriptExecutorState): object {
     let returnValueText: string | undefined;
+    let errorString: string | undefined
     try {
-        returnValueText = returnValue ? `\`\`\`js\n${JSON.stringify(returnValue, null, 2)}\`\`\`` : '\`\`\`\nNone\`\`\`';
-    } catch (err) {
-        if (err instanceof Error) {
-            returnValueText = "\`\`\`\nError: Could not stringify object.\`\`\`";
-            error = `${err.name}: ${err.message}`;
-        } else {
-            // If the error is not an instance of Error (shouldn't happen in practice), handle it accordingly
-            returnValueText = "\`\`\`\nError: Could not stringify object.\`\`\`";
-            error = `${err}`;
-        }
+        returnValueText = javaScriptExecutorState.returnValue ? `\`\`\`js\n${truncateString(JSON.stringify(javaScriptExecutorState.returnValue , null, 2), 1000, true)}\`\`\`` : '\`\`\`\nNone\`\`\`';
+    } catch (err: any) {
+        returnValueText = "\`\`\`\nError: Could not stringify object.\`\`\`";
+        errorString = `${javaScriptExecutorState.error?.name}: ${javaScriptExecutorState.error?.message}`;
     }
 
     let embed = new EmbedBuilder()
-    .setTitle(`${error ? ':x: Error' : ':white_check_mark: Success'}`)
+    .setTitle(executorColor(javaScriptExecutorState) === 0 ? ':x: Error' : executorColor(javaScriptExecutorState) === 1 ? ':arrows_counterclockwise: Running' : ':white_check_mark: Success')
     .setFields([
         {
             name: 'Code That Executed: ',
-            value: `\`\`\`js\n${codeToRun}\`\`\``,
+            value: `\`\`\`js\n${javaScriptExecutorState.code}\`\`\``,
             inline: false
         },
         {
             name: 'Console Output: ',
-            value: consoleOutput ? `\`\`\`\n${consoleOutput}\`\`\`` : '\`\`\`\nNone\`\`\`',
+            value: javaScriptExecutorState.consoleOutput ? `\`\`\`\n${truncateString(javaScriptExecutorState.consoleOutput, 500, true)}\`\`\`` : '\`\`\`\nNone\`\`\`',
             inline: false
         },
         {
@@ -141,15 +118,23 @@ function executeJavaScriptEmbed(returnValue: any, consoleOutput: string, error: 
         },
         {
             name: 'Error: ',
-            value: error ? `\`\`\`\n${error}\n\`\`\`` : '\`\`\`\nNone\`\`\`',
+            value: javaScriptExecutorState.error ? `\`\`\`\n${`${javaScriptExecutorState.error?.name}: ${javaScriptExecutorState.error?.message}`}\n\`\`\`` : '\`\`\`\nNone\`\`\`',
             inline: false
         }
     ])
-    .setColor(error ? Colors.Red : Colors.Green);
+    .setColor(executorColor(javaScriptExecutorState) === 0 ? Colors.Red : executorColor(javaScriptExecutorState) === 1 ? Colors.Blue : Colors.Green);
+
 
     // Reply with the captured console output
     return embed;
 }
+
+function executorColor(javaScriptExecutorState: IJavaScriptExecutorState): number {
+    if (javaScriptExecutorState.error) return 0
+    else if (javaScriptExecutorState.isRunning) return 1
+    else return 2;
+}
+
 
 export const options: CommandOptions = {
     devOnly: true,
